@@ -14,9 +14,12 @@ export const getMovie = async (
 ): Promise<Response> => {
   let page = Number(request.query.page) || 1;
   let perPage = Number(request.query.perPage) || 5;
+  // let sort = request.query.sort;
+  // let order = request.query.sort;
 
   const query: string = `
     SELECT * FROM movies
+
     OFFSET $1 LIMIT $2;
       `;
 
@@ -25,9 +28,24 @@ export const getMovie = async (
     values: [perPage * (page - 1), perPage],
   };
 
-  const queryResult = await client.query(queryConfig);
+  const baseUrl: string = `http://localhost:3000/movies`;
+  const prevPage: string = `${baseUrl}?page=${page - 1}&perPage=${perPage}`;
+  const nextPage: string = `${baseUrl}?page=${page + 1}&perPage=${perPage}`;
 
-  return response.status(201).json(queryResult.rows);
+  const queryResult = await client.query(queryConfig);
+  console.log(queryResult.rowCount);
+  if (queryResult.rowCount === 0) {
+    return response.status(404).json("Movies not found");
+  }
+
+  const pagination = {
+    prevPage,
+    nextPage,
+    count: queryResult.rowCount,
+    data: queryResult.rows,
+  };
+
+  return response.status(201).json(pagination);
 };
 
 export const postMovie = async (
@@ -47,7 +65,7 @@ export const postMovie = async (
   });
 
   if (!dataBaseIncluds) {
-    return response.status(400).json({ message: "Name alredy exists" });
+    return response.status(400).json({ message: "Movie already exists." });
   }
 
   const queryString: string = `
@@ -86,10 +104,10 @@ export const deleteMovie = async (request: Request, response: Response) => {
   const queryResult = await client.query(queryConfig);
 
   if (!queryResult.rowCount) {
-    return response.status(404).json({ message: "movie not found" });
+    return response.status(404).json({ message: "Movie not found." });
   }
 
-  return response.status(200).json({ message: "movie deleted" });
+  return response.status(204);
 };
 
 export const patchMovie = async (
@@ -98,17 +116,31 @@ export const patchMovie = async (
 ): Promise<Response> => {
   const id: number = parseInt(request.params.id);
   const newData = Object.values(request.body);
+  const data = request.body;
   const keysData = Object.keys(request.body);
+  const dataBase = request.DataBase.queryResult;
+
+  const dataBaseIncluds: boolean = dataBase.rows.every((e: IMoviesResponse) => {
+    if (e.name === data.name) {
+      return false;
+    } else {
+      return true;
+    }
+  });
+  if (!dataBaseIncluds) {
+    return response.status(400).json("Movie already exists.");
+  }
+  console.log(dataBaseIncluds);
 
   const formatString: string = format(
     `
-UPDATE 
-   movies
-SET(%I) = ROW(%L)
-WHERE 
+    UPDATE 
+    movies
+    SET(%I) = ROW(%L)
+    WHERE 
     id = $1
-RETURNING *;
-`,
+    RETURNING *;
+    `,
     keysData,
     newData
   );
@@ -119,11 +151,9 @@ RETURNING *;
   };
 
   const queryResult = await client.query(queryConfig);
-
   if (!queryResult.rowCount) {
-    return response.status(404).json({ message: "movie not found" });
+    return response.status(404).json({ message: "Movie not found." });
   }
-  console.log(queryResult.rows[0]);
 
   return response.json(queryResult.rows[0]);
 };
